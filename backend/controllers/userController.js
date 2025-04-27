@@ -21,7 +21,6 @@ const authUser = asyncHandler(async (req, res) => {
         res.status(401);
         throw new Error("Invalid Email and Password");
     }
-    res.send({ email, password });
 });
 
 // @desc    get user profile

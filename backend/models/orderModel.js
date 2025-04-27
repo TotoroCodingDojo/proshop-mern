@@ -2,7 +2,7 @@ import mongoose, { mongo } from "mongoose";
 
 const orderSchema = mongoose.Schema(
     {
-        name: {
+        user: {
             type: mongoose.Schema.Types.ObjectId,
             required: true,
             ref: "User",
@@ -39,9 +39,8 @@ const orderSchema = mongoose.Schema(
             country: { type: String, required: true },
         },
         paymentMethod: {
-            type: Boolean,
+            type: String,
             required: true,
-            default: false,
         },
         paymentResult: {
             id: { type: String },
