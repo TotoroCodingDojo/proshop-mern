@@ -1,18 +1,31 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button, ListGroup, Row, Col, Image, Card } from "react-bootstrap";
 import { useDispatch, useSelector } from "react-redux";
 import Message from "../components/Message";
 import Loader from "../components/Loader";
-import { createOrder, getOrderDetails } from "../actions/orderActions";
+import { orderPay, getOrderDetails } from "../actions/orderActions";
+import axios from "axios";
+import { ORDER_PAY_RESET } from "../constants/orderConstants";
+import { PayPalButtons, usePayPalScriptReducer } from "@paypal/react-paypal-js";
+import { toast } from "react-toastify";
 
-const OrderScreen = ({ match }) => {
-    const orderId = match.params.id;
-
+const OrderScreen = ({ match, history }) => {
     const dispatch = useDispatch();
+
+    const orderId = match.params.id;
 
     const orderDetails = useSelector((state) => state.orderDetails);
     const { order, loading, error } = orderDetails;
+
+    const userLogin = useSelector((state) => state.userLogin);
+    const { userInfo } = userLogin;
+
+    const [{ isPending }, paypalDispatch] = usePayPalScriptReducer();
+
+    const [paypal, setPaypal] = useState("");
+    const [loadingPayPal, setLoadingPayPal] = useState(true);
+    const [errorPayPal, setErrorPayPal] = useState(null);
 
     if (!loading && !error) {
         const addDecimals = (num) => {
@@ -26,9 +39,86 @@ const OrderScreen = ({ match }) => {
         );
     }
 
+    /* get the paypal client id */
     useEffect(() => {
-        dispatch(getOrderDetails(orderId));
-    }, [dispatch, orderId]);
+        const fetchClientId = async () => {
+            try {
+                const { data } = await axios.get("/api/config/paypal");
+                console.log(data);
+                setPaypal({
+                    clientId: data,
+                });
+            } catch (err) {
+                setErrorPayPal(err);
+            } finally {
+                setLoadingPayPal(false);
+            }
+        };
+        fetchClientId();
+    }, []);
+
+    useEffect(() => {
+        if (!userInfo) {
+            history.push("/login");
+        }
+        if (!order) {
+            dispatch(getOrderDetails(orderId));
+        }
+    }, [dispatch, order, userInfo, history, orderId]);
+
+    useEffect(() => {
+        if (!errorPayPal && !loadingPayPal && paypal.clientId) {
+            const loadPaypalScript = async () => {
+                paypalDispatch({
+                    type: "resetOptions",
+                    value: {
+                        "client-id": paypal.clientId,
+                        currency: "USD",
+                    },
+                });
+                paypalDispatch({ type: "setLoadingStatus", value: "pending" });
+            };
+            if (order && !order.isPaid) {
+                if (!window.paypal) {
+                    loadPaypalScript();
+                }
+            }
+        }
+    }, [errorPayPal, loadingPayPal, order, paypal, paypalDispatch]);
+
+    function onApprove(data, actions) {
+        return actions.order.capture().then(async function (details) {
+            try {
+                dispatch(orderPay(orderId, details));
+                dispatch(getOrderDetails(orderId));
+                console.log(data);
+                console.log(details);
+                // await payOrder({ orderId, details });
+                // refetch();
+                toast.success("Order is paid");
+            } catch (err) {
+                toast.error(err?.data?.message || err.error);
+            }
+        });
+    }
+
+    function onError(err) {
+        toast.error(err.message);
+    }
+
+    function createOrder(data, actions) {
+        return actions.order
+            .create({
+                purchase_units: [
+                    {
+                        amount: { value: order.totalPrice },
+                    },
+                ],
+            })
+            .then((orderID) => {
+                return orderID;
+            });
+    }
 
     return loading ? (
         <Loader />
@@ -151,6 +241,20 @@ const OrderScreen = ({ match }) => {
                                     </Row>
                                 </ListGroup.Item>
                             </ListGroup.Item>
+                            {!order.isPaid && (
+                                <ListGroup.Item>
+                                    {(isPending || loadingPayPal) &&
+                                    !order.isPaid ? (
+                                        <Loader />
+                                    ) : (
+                                        <PayPalButtons
+                                            createOrder={createOrder}
+                                            onApprove={onApprove}
+                                            onError={onError}
+                                        ></PayPalButtons>
+                                    )}
+                                </ListGroup.Item>
+                            )}
                         </ListGroup>
                     </Card>
                 </Col>
